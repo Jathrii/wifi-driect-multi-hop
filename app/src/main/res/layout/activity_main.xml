@@ -6,19 +6,19 @@ android:layout_width="match_parent"
 android:layout_height="match_parent"
 tools:context="com.example.wi_fidirecttest.MainActivity">
 
-<Button
-    android:id="@+id/onOff"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_alignParentStart="true"
-    android:layout_alignParentTop="true"
-    android:layout_marginStart="28dp"
-    android:layout_marginTop="55dp"
-    android:text="Wifi On"
-    android:layout_alignParentLeft="true"
-    android:layout_marginLeft="28dp" />
+    <Button
+        android:id="@+id/onOff"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginStart="30dp"
+        android:layout_marginLeft="30dp"
+        android:layout_marginTop="54dp"
+        android:text="Wifi On" />
 
-<Button
+    <Button
     android:id="@+id/discover"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
@@ -86,4 +86,20 @@ tools:context="com.example.wi_fidirecttest.MainActivity">
     android:textSize="18sp"
     android:textStyle="italic"
     android:layout_alignParentLeft="true" />
+
+    <Button
+        android:id="@+id/disconnect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_marginStart="20dp"
+        android:layout_marginLeft="20dp"
+        android:layout_marginTop="54dp"
+        android:layout_marginEnd="30dp"
+        android:layout_marginRight="30dp"
+        android:layout_toEndOf="@+id/discover"
+        android:layout_toRightOf="@+id/discover"
+        android:text="Disconnect" />
 </RelativeLayout>
