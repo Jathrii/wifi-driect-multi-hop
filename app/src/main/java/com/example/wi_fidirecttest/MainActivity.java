@@ -14,11 +14,10 @@ import android.os.Message;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.Spinner;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,13 +31,26 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class MainActivity extends AppCompatActivity {
-    //final String TAG = this.getClass().toString();
+    final String TAG = this.getClass().toString();
+    final String DEVICE_A_MAC = "ee:d0:9f:1e:4c:e2";
+    final String DEVICE_B_MAC = "0a:78:08:a9:3e:bc";
+    final String DEVICE_C_MAC = "ae:5f:3e:f8:7b:fc";
 
-    Button btnOnOff, btnDiscover, btnSend, btnDisconnect;
-    ListView listView;
+    final int TTL = 8;
+
+    boolean waiting;
+    boolean sending;
+
+    byte[] currentMessage;
+
+    Button btnOnOff, btnSend;
+    Spinner spinDestDevice;
     TextView read_msg_box, connectionStatus;
     EditText writeMsg;
 
@@ -52,12 +64,14 @@ public class MainActivity extends AppCompatActivity {
     List<WifiP2pDevice> peers = new ArrayList<WifiP2pDevice>();
     String[] deviceNameArray;
     WifiP2pDevice[] deviceArray;
+    public WifiP2pDevice currentDevice;
 
     static final int MESSAGE_READ = 1;
 
     ServerClass serverClass;
     ClientClass clientClass;
     SendReceive sendReceive;
+    int zz = 50;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +79,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         initialWork();
         exqListener();
+
+        discover();
     }
 
     Handler handler = new Handler(new Handler.Callback() {
@@ -95,9 +111,42 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        btnDiscover.setOnClickListener(new View.OnClickListener() {
+        btnSend.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                String destAddress = "";
+
+                switch (spinDestDevice.getSelectedItem().toString()) {
+                    case "DeviceA":
+                        destAddress = DEVICE_A_MAC;
+                        break;
+                    case "DeviceB":
+                        destAddress = DEVICE_B_MAC;
+                        break;
+                    case "DeviceC":
+                        destAddress = DEVICE_C_MAC;
+                        break;
+                }
+
+                currentMessage = (TTL + "," + destAddress + "," + writeMsg.getText().toString()).getBytes();
+                sending = true;
+
+                establishConnection(TTL, destAddress, writeMsg.getText().toString());
+            }
+        });
+    }
+
+    public void discover() {
+        Timer timer = new Timer();
+        TimerTask discoveryTimer = new TimerTask() {
+            @Override
+            public void run() {
+                if (waiting)
+                    return;
+
+                waiting = true;
+
+                Log.d(TAG, "run: Timer Before");
                 mManager.discoverPeers(mChannel, new WifiP2pManager.ActionListener() {
                     @Override
                     public void onSuccess() {
@@ -106,111 +155,149 @@ public class MainActivity extends AppCompatActivity {
 
                     @Override
                     public void onFailure(int i) {
-                        connectionStatus.setText("Discovery Starting Failed");
+                        waiting = false;
+                        connectionStatus.setText("Discovery Starting Failed " + i);
                     }
                 });
+
+                Log.d(TAG, "run: Timer After");
+            }
+        };
+        timer.schedule(discoveryTimer, 1, 5000);
+
+        /*
+        mManager.discoverPeers(mChannel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                connectionStatus.setText("Discovery Started");
+            }
+
+            @Override
+            public void onFailure(int i) {
+                waiting = false;
+                connectionStatus.setText("Discovery Starting Failed " + i);
             }
         });
+        */
+    }
 
-        btnDisconnect.setOnClickListener(new View.OnClickListener() {
+    private void establishConnection(final int ttl, final String destAddress, final String message) {
+        Thread thread = new Thread(new Runnable() {
+
             @Override
-            public void onClick(View view) {
-                mManager.cancelConnect(mChannel, new WifiP2pManager.ActionListener() {
-                    @Override
-                    public void onSuccess() {
-                        connectionStatus.setText("Cancelled Connection Successfully");
-                    }
+            public void run() {
+                Log.d(TAG, "run: ESTABLISHING");
+                WifiP2pDevice targetDevice = null;
 
-                    @Override
-                    public void onFailure(int i) {
-                        connectionStatus.setText("Failed to Cancel Connection");
-                    }
-                });
-
-                mManager.removeGroup(mChannel, new WifiP2pManager.ActionListener() {
-                    @Override
-                    public void onSuccess() {
-                        connectionStatus.setText("Disconnected Successfully");
-                    }
-
-                    @Override
-                    public void onFailure(int i) {
-                        connectionStatus.setText("Failed to Disconnect");
-                    }
-                });
-
-                if (sendReceive != null && sendReceive.socket != null) {
-                    try {
-                        sendReceive.socket.close();
-                        sendReceive.socket = null;
-
-                        if (serverClass != null && serverClass.socket != null) {
-                            try {
-                                serverClass.serverSocket.close();
-                                serverClass.serverSocket = null;
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
+                // comment to force forwarding
+                for (WifiP2pDevice device : deviceArray) {
+                    if (device.deviceAddress.equals(destAddress)) {
+                        Log.d(TAG, "run: FOUND DEVICE: " + destAddress);
+                        targetDevice = device;
+                        break;
                     }
                 }
-            }
-        });
+                // comment to force forwarding
 
+                if (deviceArray.length > 0 && targetDevice == null) {
+                    //targetDevice = deviceArray[0];
+                    String[] networkDevicesArr = {DEVICE_A_MAC, DEVICE_B_MAC, DEVICE_C_MAC};
+                    ArrayList<String> networkDevices = new ArrayList<>(Arrays.asList(networkDevicesArr));
 
-        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
-                final WifiP2pDevice device = deviceArray[i];
-                WifiP2pConfig config = new WifiP2pConfig();
-                config.deviceAddress = device.deviceAddress;
+                    networkDevices.remove(currentDevice.deviceAddress);
+                    networkDevices.remove(destAddress);
 
-                mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
-                    @Override
-                    public void onSuccess() {
-                        Toast.makeText(getApplicationContext(), "Connected to " + device.deviceName, Toast.LENGTH_SHORT).show();
-                    }
-
-                    @Override
-                    public void onFailure(int i) {
-                        Toast.makeText(getApplicationContext(), "Not Connected", Toast.LENGTH_SHORT).show();
-                    }
-                });
-            }
-        });
-
-        btnSend.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Thread thread = new Thread(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        try {
-                            String msg = writeMsg.getText().toString();
-                            sendReceive.write(msg.getBytes());
-                        } catch (Exception e) {
-                            e.printStackTrace();
+                    for (WifiP2pDevice device : deviceArray) {
+                        if (device.deviceAddress.equals(networkDevices.get(0))) {
+                            targetDevice = device;
+                            break;
                         }
+
                     }
-                });
-                thread.start();
+                }
+
+                if (targetDevice != null) {
+                    WifiP2pConfig config = new WifiP2pConfig();
+                    config.deviceAddress = targetDevice.deviceAddress;
+                    serverClass = new ServerClass();
+                    serverClass.start();
+
+                    mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
+                        @Override
+                        public void onSuccess() {
+                            Toast.makeText(getApplicationContext(), "Connected", Toast.LENGTH_SHORT).show();
+                            Log.d(TAG, "onSuccess: SUCCESS SO WTF");
+                        }
+
+                        @Override
+                        public void onFailure(int i) {
+                            Toast.makeText(getApplicationContext(), "Not Connected", Toast.LENGTH_SHORT).show();
+
+                            /*
+                            if(zz>0) {
+                                zz--;
+                                try {
+                                    if (serverClass != null && serverClass.serverSocket != null && !serverClass.serverSocket.isClosed()) {
+                                        serverClass.serverSocket.close();
+                                        serverClass.serverSocket = null;
+                                    }
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+
+                             */
+                            establishConnection(ttl,destAddress,message);
+                        }
+                    });
+                } else
+                    Log.d(TAG, "run: No Devices Available");
+            }
+        });
+
+        thread.run();
+    }
+
+    private void disconnect() {
+        /*
+        mManager.cancelConnect(mChannel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                connectionStatus.setText("Cancelled Connection Successfully");
+            }
+
+            @Override
+            public void onFailure(int i) {
+                connectionStatus.setText("Failed to Cancel Connection");
+            }
+        });
+        */
+
+        mManager.removeGroup(mChannel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                connectionStatus.setText("Disconnected Successfully");
+                Log.d(TAG, "onSuccess: Remove Group");
+            }
+
+            @Override
+            public void onFailure(int i) {
+                connectionStatus.setText("Failed to Disconnect " + i);
             }
         });
     }
 
     private void initialWork() {
-        btnOnOff = (Button) findViewById(R.id.onOff);
-        btnDiscover = (Button) findViewById(R.id.discover);
-        btnDisconnect = (Button) findViewById(R.id.disconnect);
-        btnSend = (Button) findViewById(R.id.sendButton);
-        listView = (ListView) findViewById(R.id.peerListView);
-        read_msg_box = (TextView) findViewById(R.id.readMsg);
-        connectionStatus = (TextView) findViewById(R.id.connectionStatus);
-        writeMsg = (EditText) findViewById(R.id.writeMsg);
+        btnOnOff = findViewById(R.id.onOff);
+        spinDestDevice = findViewById(R.id.destDevice);
+        btnSend = findViewById(R.id.sendButton);
+        read_msg_box = findViewById(R.id.readMsg);
+        connectionStatus = findViewById(R.id.connectionStatus);
+        writeMsg = findViewById(R.id.writeMsg);
+
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this, R.array.devices, android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinDestDevice.setAdapter(adapter);
 
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
 
@@ -224,6 +311,8 @@ public class MainActivity extends AppCompatActivity {
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
+
+        sending = false;
     }
 
     WifiP2pManager.PeerListListener peerListListener = new WifiP2pManager.PeerListListener() {
@@ -240,11 +329,12 @@ public class MainActivity extends AppCompatActivity {
                 for (WifiP2pDevice device : peerList.getDeviceList()) {
                     deviceNameArray[index] = device.deviceName;
                     deviceArray[index] = device;
+                    Log.d(TAG, "onPeersAvailable: Device Name: " + device.deviceName);
+                    Log.d(TAG, "onPeersAvailable: Device MAC: " + device.deviceAddress);
                     index++;
                 }
 
-                ArrayAdapter<String> adapter = new ArrayAdapter<String>(getApplicationContext(), android.R.layout.simple_list_item_1, deviceNameArray);
-                listView.setAdapter(adapter);
+                waiting = false;
             }
 
             if (peers.size() == 0) {
@@ -260,15 +350,18 @@ public class MainActivity extends AppCompatActivity {
             final InetAddress groupOwnerAddress = wifiP2pInfo.groupOwnerAddress;
 
             if (wifiP2pInfo.groupFormed && wifiP2pInfo.isGroupOwner) {
-
                 connectionStatus.setText("Host");
                 serverClass = new ServerClass();
                 serverClass.start();
-            } else if (wifiP2pInfo.groupFormed) {
 
+                Toast.makeText(getApplicationContext(), "I'm a real bo- Server!", Toast.LENGTH_SHORT).show();
+            } else if (wifiP2pInfo.groupFormed) {
                 connectionStatus.setText("Client");
                 clientClass = new ClientClass(groupOwnerAddress);
                 clientClass.start();
+
+
+                Toast.makeText(getApplicationContext(), "I'm a real bo- Client!", Toast.LENGTH_SHORT).show();
             }
         }
     };
@@ -296,6 +389,9 @@ public class MainActivity extends AppCompatActivity {
                 socket = serverSocket.accept();
                 sendReceive = new SendReceive(socket);
                 sendReceive.start();
+                Log.d(TAG, "run: Before closing serverSocket");
+                serverSocket.close();
+                Log.d(TAG, "run: After closing serverSocket");
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -308,6 +404,7 @@ public class MainActivity extends AppCompatActivity {
         private OutputStream outputStream;
 
         public SendReceive(Socket skt) {
+            Log.d(TAG, "SendReceive: constructor");
             socket = skt;
             try {
                 inputStream = socket.getInputStream();
@@ -325,51 +422,86 @@ public class MainActivity extends AppCompatActivity {
 
             while (socket != null) {
                 try {
+                    if (sending) {
+                        Log.d(TAG, "run: A");
+                        sending = false;
+
+                        Thread thread = new Thread(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                write(currentMessage);
+                            }
+                        });
+
+                        thread.start();
+
+                        continue;
+                    }
+
                     bytes = inputStream.read(buffer);
 
                     if (bytes > 0) {
-                        handler.obtainMessage(MESSAGE_READ, bytes, -1, buffer).sendToTarget();
-                    } else {
-                        if (socket != null) {
-
-                            try {
-                                socket.close();
-                                socket = null;
-                                if (serverClass != null && serverClass.serverSocket != null) {
-                                    serverClass.serverSocket.close();
-                                    serverClass.serverSocket = null;
-                                }
-                            } catch (IOException e1) {
-                                e1.printStackTrace();
-                            }
-                        }
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-
-                    if (socket != null) {
-
+                        Log.d(TAG, "run: B");
+                        disconnect();
                         try {
                             socket.close();
                             socket = null;
-                            if (serverClass != null && serverClass.serverSocket != null) {
-                                serverClass.serverSocket.close();
-                                serverClass.serverSocket = null;
-                            }
+                        } catch (IOException e1) {
+                            e1.printStackTrace();
+                        }
+
+                        String[] decode = (new String(buffer)).split(",");
+
+                        int ttl = Integer.parseInt(decode[0]);
+                        String destAddress = decode[1];
+                        String message = decode[2];
+
+                        ttl--;
+
+                        if (destAddress.equals(currentDevice.deviceAddress)) {
+                            Log.d(TAG, "run: C");
+                            handler.obtainMessage(MESSAGE_READ, bytes, -1, message.getBytes()).sendToTarget();
+                        } else if (ttl > 0) {
+                            Log.d(TAG, "run: D");
+                            sending = true;
+
+                            Log.d(TAG, "run: DestAddress " + destAddress);
+                            establishConnection(ttl, destAddress, message);
+                        } else {
+                            // TTL = 0, message lost
+                            Log.d(TAG, "run: TTL = 0, Message Lost");
+                        }
+                    } else if (bytes < 0) {
+                        Log.d(TAG, "run: E");
+                        disconnect();
+                        try {
+                            socket.close();
+                            socket = null;
                         } catch (IOException e1) {
                             e1.printStackTrace();
                         }
                     }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.d(TAG, "run: F");
+
+                    disconnect();
+                    try {
+                        socket.close();
+                        socket = null;
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
                 }
             }
-
-
         }
 
         public void write(byte[] bytes) {
             try {
+                Log.d(TAG, "write: before");
                 outputStream.write(bytes);
-
+                Log.d(TAG, "write: after");
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -388,7 +520,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             try {
-                socket.connect(new InetSocketAddress(hostAdd, 8888), 500);
+                socket.connect(new InetSocketAddress(hostAdd, 8888), 5000);
                 sendReceive = new SendReceive(socket);
                 sendReceive.start();
             } catch (IOException e) {
